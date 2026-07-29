@@ -1,0 +1,28 @@
+# Participant-level data and local copies
+*.xlsx
+*.xls
+*.csv
+data/
+
+# Never publish local fitted models, predictions, QC extracts or run outputs.
+outputs/
+
+# Notebook/runtime artifacts
+.ipynb_checkpoints/
+__pycache__/
+*.py[cod]
+
+# Local executed notebooks and their machine-specific builder scripts.
+# The portable Kaggle notebook under kaggle/ is tracked separately.
+notebooks/
+src/build_*_notebook.py
+!src/build_kaggle_heavy_notebook.py
+
+# Temporary local authentication captures
+.gh-auth-*.txt
+
+# User-specific Kaggle kernel metadata generated from the tracked template
+kaggle/**/kernel-metadata.json
+
+# Local heavy smoke outputs
+outputs/smoke_heavy_*/

@@ -1,0 +1,4 @@
+# Pin the fast-moving foundation-model dependency used by the heavy run.
+# Kaggle's preinstalled scientific stack should be recorded at runtime with pip freeze.
+tabpfn==8.2.0
+

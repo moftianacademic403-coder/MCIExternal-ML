@@ -1,0 +1,184 @@
+{
+  "status": "prepared_not_executed",
+  "created_on": "2026-07-29",
+  "purpose": "manuscript-grade Kaggle GPU run after the lightweight pipeline audit",
+  "data_policy": {
+    "development_source": "Developement.csv",
+    "external_source": "External.xlsx",
+    "external_role": "primary_locked_external_validation_then_separately_reported_secondary_local_updating",
+    "external_must_not_influence": [
+      "feature_selection",
+      "hyperparameter_tuning",
+      "model_family_selection",
+      "development_model_probability_calibration",
+      "development_decision_threshold_selection"
+    ],
+    "secondary_external_local_updating": [
+      "10_fold_oof_logistic_recalibration",
+      "10_fold_oof_local_threshold_updating",
+      "reported_separately_from_locked_external_validation"
+    ],
+    "raw_files_are_never_modified": true,
+    "participant_level_outputs_are_not_exported": true
+  },
+  "blocking_confirmations_before_heavy_run": {
+    "exact_mci_label_definition": "required",
+    "whether_adl_or_iadl_contributed_to_mci_label": "required",
+    "clinical_screening_sensitivity_target": "required_for_threshold_based_primary_analysis"
+  },
+  "locked_split": {
+    "development_train_fraction": 0.8,
+    "development_internal_test_fraction": 0.2,
+    "stratified": true,
+    "reuse_existing_locked_indices": true,
+    "random_seed": 20260729
+  },
+  "preprocessing": {
+    "fit_scope": "inside_each_training_fold_only",
+    "numeric_primary": "median_imputation_plus_missing_indicator",
+    "categorical_primary": "explicit_missing_level",
+    "linear_and_svm": "one_hot_categorical_plus_robust_scaling_numeric",
+    "tree_models": "one_hot_categorical_without_scaling_numeric",
+    "tabpfn": "native_dataframe_missing_values_and_categorical_handling; no one_hot_or_scaling",
+    "outliers_primary": "retain_clinically_plausible_values; no_automatic_deletion_or_winsorization",
+    "outliers_sensitivity": "training_fold_p01_p99_winsorization_applied_to_validation_test_external",
+    "external_handgrip_zero": "convert_to_missing_in_harmonized_copy"
+  },
+  "feature_selection": {
+    "family": "mRMR",
+    "current_preliminary_variant": "normalized_mutual_information_difference_after_training_only_discretization",
+    "candidate_k": [5, 10, 15, 20, 25, 30],
+    "stability_repeats": 30,
+    "stability_sampling": "stratified_training_only_resamples",
+    "consensus_rule": "rank_by_selection_frequency_then_median_rank",
+    "nested_rule": "rerun_mRMR_on_each_inner_training_fold; never_rank_on_inner_validation_outer_test_or_external",
+    "final_train_rule": "repeat_30_times_on_full_locked_80_percent_training_set_after_model_specification_is_frozen"
+  },
+  "model_families": [
+    {
+      "name": "elastic_net_logistic_regression",
+      "family": "linear"
+    },
+    {
+      "name": "rbf_svm",
+      "family": "kernel"
+    },
+    {
+      "name": "random_forest",
+      "family": "bagged_trees"
+    },
+    {
+      "name": "xgboost",
+      "family": "boosted_trees"
+    },
+    {
+      "name": "tabpfn",
+      "family": "tabular_foundation_model",
+      "package_version": "8.2.0",
+      "checkpoint": "default_TabPFN_3_at_pinned_package_version",
+      "device": "cuda"
+    }
+  ],
+  "nested_cv": {
+    "scope": "locked_development_train_80_only",
+    "outer_folds": 5,
+    "outer_repeats": 3,
+    "inner_folds": 4,
+    "stratified": true,
+    "primary_tuning_metric": "roc_auc",
+    "secondary_tuning_metrics": [
+      "average_precision",
+      "brier_score"
+    ],
+    "random_search_iterations_per_classical_family": 40,
+    "tabpfn_search": "small_prespecified_search_or_default_due_compute_cost",
+    "paired_outer_fold_comparisons": true
+  },
+  "model_selection": {
+    "scope": "Development_only_repeated_nested_CV",
+    "primary_criterion": "outer_fold_roc_auc",
+    "secondary_criteria": [
+      "outer_fold_brier_score",
+      "calibration_intercept_and_slope",
+      "parsimony_and_deployment_feasibility"
+    ],
+    "paired_outer_fold_comparisons": true,
+    "include_tabpfn_before_locking": true,
+    "external_results_must_not_select_model_family": true,
+    "current_status": "not_yet_selected"
+  },
+  "calibration": {
+    "primary": "sigmoid_platt_from_development_training_cross_fitted_predictions",
+    "sensitivity": "isotonic_from_development_training_cross_fitted_predictions",
+    "locked_external_recalibration": false,
+    "secondary_local_updating": {
+      "method": "logistic_recalibration_intercept_and_slope",
+      "evaluation": "10-fold out-of-fold within External; fit recalibration and operating threshold on each fold training subset and evaluate both on the held-out subset",
+      "report_separately_from_locked_external_validation": true,
+      "final_full_external_fit": "for_future_local_deployment_only_not_same_sample_evaluation",
+      "interpretation_rule": "probability_recalibration_and_local_threshold_updating_are_distinct_adaptations"
+    }
+  },
+  "evaluation": {
+    "partitions": [
+      "locked_internal_test_20",
+      "locked_external_validation"
+    ],
+    "primary_metrics": [
+      "roc_auc",
+      "average_precision",
+      "brier_score",
+      "calibration_intercept",
+      "calibration_slope"
+    ],
+    "threshold_metrics": [
+      "sensitivity",
+      "specificity",
+      "ppv",
+      "npv",
+      "accuracy",
+      "f1"
+    ],
+    "confidence_interval": "paired_stratified_percentile_bootstrap",
+    "bootstrap_repetitions": 2000,
+    "threshold_source": "development_training_cross_fitted_predictions_only",
+    "threshold_policy": "report_Youden_as_exploratory; report_80_85_90_percent_sensitivity_scenarios; define_primary_screening_threshold_after_clinical_consequences_are_confirmed",
+    "illustrative_prevalence_scenarios": [0.1, 0.2, 0.3],
+    "prevalence_scenario_warning": "PPV_NPV_projection_assumes_sensitivity_and_specificity_transport_despite_possible_spectrum_effects"
+  },
+  "brier_decomposition": {
+    "method": "Murphy reliability_resolution_uncertainty decomposition",
+    "preliminary_bins": 10,
+    "final_run": "bootstrap_full_local_adaptation_procedure_and_report_binning_or_CORP_method_explicitly"
+  },
+  "decision_curve_analysis": {
+    "threshold_probability_min": 0.05,
+    "threshold_probability_max": 0.8,
+    "threshold_probability_step": 0.01,
+    "bootstrap_repetitions": 2000
+  },
+  "subgroups": [
+    "sex",
+    "age_under_65_65_to_74_75_plus",
+    "selected_predictor_missingness"
+  ],
+  "sensitivity_analyses": [
+    "exclude_adl_and_iadl_if_outcome_overlap_exists",
+    "transportable_core_features",
+    "training_fold_p01_p99_winsorization",
+    "multiple_imputation_mice",
+    "complete_case_when_sample_size_and_selection_bias_allow"
+  ],
+  "interpretability": {
+    "method": "SHAP",
+    "scope": "locked_internal_test_primary; external_descriptive_only",
+    "warning": "SHAP_association_not_causality"
+  },
+  "reporting": {
+    "follow_tripod_ai": true,
+    "record_python_and_package_versions": true,
+    "record_gpu_and_cuda_versions": true,
+    "record_random_seeds": true,
+    "save_aggregate_outputs_only": true
+  }
+}
