@@ -21,7 +21,9 @@ def prepare(
     repository_branch: str,
 ) -> None:
     metadata = json.loads(TEMPLATE_PATH.read_text(encoding="utf-8"))
-    metadata["id"] = f"{kaggle_username}/mci-heavy-selection-and-validation"
+    metadata["id"] = (
+        f"{kaggle_username}/mci-heavy-selection-and-validation-with-tabpfn"
+    )
     metadata["dataset_sources"] = [
         f"{kaggle_username}/{private_dataset_slug}"
     ]
@@ -39,18 +41,30 @@ def prepare(
             f"REPOSITORY_BRANCH = {repository_branch!r}"
         ),
     }
-    replacement_counts = {key: 0 for key in replacements}
-    for cell in notebook.cells:
-        if cell.cell_type != "code":
-            continue
-        for old, new in replacements.items():
-            if old in cell.source:
-                cell.source = cell.source.replace(old, new)
-                replacement_counts[old] += 1
-    if any(count != 1 for count in replacement_counts.values()):
-        raise RuntimeError(
-            f"Unexpected notebook parameter replacement counts: {replacement_counts}"
+    replacement_counts: dict[str, dict[str, int]] = {}
+    for old, new in replacements.items():
+        old_count = sum(
+            cell.source.count(old)
+            for cell in notebook.cells
+            if cell.cell_type == "code"
         )
+        new_count = sum(
+            cell.source.count(new)
+            for cell in notebook.cells
+            if cell.cell_type == "code"
+        )
+        replacement_counts[old] = {"placeholder": old_count, "configured": new_count}
+        if old_count == 1 and new_count == 0:
+            for cell in notebook.cells:
+                if cell.cell_type == "code" and old in cell.source:
+                    cell.source = cell.source.replace(old, new)
+        elif old_count == 0 and new_count == 1:
+            continue
+        else:
+            raise RuntimeError(
+                "Unexpected notebook parameter state: "
+                f"{replacement_counts[old]} for {old!r}"
+            )
     nbformat.validate(notebook)
     nbformat.write(notebook, NOTEBOOK_PATH)
 
@@ -80,4 +94,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
