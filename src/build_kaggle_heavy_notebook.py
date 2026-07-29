@@ -85,6 +85,8 @@ subprocess.run(
     code(
         r"""
 os.environ.setdefault("TABPFN_DISABLE_TELEMETRY", "1")
+os.environ.setdefault("TABPFN_NO_BROWSER", "1")
+token = None
 try:
     from kaggle_secrets import UserSecretsClient
 
@@ -93,10 +95,14 @@ try:
         os.environ["TABPFN_TOKEN"] = token
         print("TABPFN_TOKEN loaded from Kaggle Secrets.")
 except Exception as error:
-    print(
-        "TABPFN_TOKEN was not loaded. If the checkpoint is already public/cached "
-        "this may be acceptable; otherwise the unattended run will stop clearly.",
-        type(error).__name__,
+    raise RuntimeError(
+        "TABPFN_TOKEN is unavailable. Add and enable this Kaggle Secret before "
+        "the unattended GPU run. The token must never be pasted into this notebook."
+    ) from error
+
+if not token:
+    raise RuntimeError(
+        "TABPFN_TOKEN is empty. Add and enable this Kaggle Secret before the run."
     )
 """
     ),
