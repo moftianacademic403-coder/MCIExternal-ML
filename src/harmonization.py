@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from mci_qc import load_inputs, write_csv
+from mci_qc import harmonization_questionnaire, load_inputs, write_csv
 
 
 KEYS = ["development_column_or_expression", "external_column_or_expression"]
@@ -58,6 +58,32 @@ HISTORY_COLUMNS = {
 
 UNRESOLVED_REQUIREMENTS: dict[str, tuple[str, str]] = {}
 
+# Study-team decisions recorded during the harmonization review. This executable
+# configuration contains variable mappings only; it contains no participant data.
+REVIEWED_RESPONSE_OVERRIDES = {
+    "housing_status": (
+        "Living with one of children and their family: LABEL_EXTENDED; "
+        "Living with siblings or a family member and their family: LABEL_EXTENDED; "
+        "living with spouses: LABEL_INDEPENDENT; "
+        "With child & family’s&With brother &sister: LABEL_EXTENDED"
+    ),
+    "household_income": (
+        "Poorest and Poorer to low; Middle to moderate; Richer and Richest to high"
+    ),
+    "mean_sitting_min_day": (
+        "external: (5 * sit_work + 2 * sit_weekend) / 7; "
+        "development: mean_sitting_min_day unchanged"
+    ),
+    "max_handgrip_right + max_handgrip_left": (
+        "اگر فقط یک دست مقدار دارد از دست موجود استفاده شود؛ اگر هر دو دست missing "
+        "هستند مقدار مشتق‌شده missing باشد؛ صفر External نیز missing است"
+    ),
+    "EDU": (
+        "Illitrate and primary to illitrate&primary school; "
+        "secendry&high to secondary school; Academic to Academic"
+    ),
+}
+
 
 def _clean_text(series: pd.Series) -> pd.Series:
     return series.astype("string").str.strip().replace("", pd.NA).str.casefold()
@@ -104,6 +130,22 @@ def _response_confirms_rule(development_expression: str, response: str) -> bool:
     if development_expression == "max_handgrip_right + max_handgrip_left":
         return all(token in normalized for token in {"دست موجود", "هر دو دست", "missing"})
     return _yes(response)
+
+
+def _write_reviewed_questionnaire(questionnaire_path: Path) -> None:
+    questionnaire = harmonization_questionnaire()
+    questionnaire["user_response"] = "yes"
+    for development_expression, response in REVIEWED_RESPONSE_OVERRIDES.items():
+        mask = questionnaire["development_column_or_expression"].eq(
+            development_expression
+        )
+        if int(mask.sum()) != 1:
+            raise ValueError(
+                "Expected exactly one harmonization row for "
+                f"{development_expression!r}; found {int(mask.sum())}."
+            )
+        questionnaire.loc[mask, "user_response"] = response
+    write_csv(questionnaire, questionnaire_path)
 
 
 def _rule_for_row(development_expression: str, external_expression: str) -> dict | None:
@@ -393,6 +435,9 @@ def run_harmonization_resolution(
         if resolved_questionnaire_path.exists()
         else output_dir / "harmonization_questionnaire.csv"
     )
+    if not questionnaire_path.exists():
+        questionnaire_path = resolved_questionnaire_path
+        _write_reviewed_questionnaire(questionnaire_path)
     questionnaire, registry = resolve_questionnaire(questionnaire_path)
     development, external, _ = load_inputs(development_path, external_path)
     validation = validate_registry(development, external, registry)
