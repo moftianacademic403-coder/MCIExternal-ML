@@ -9,11 +9,10 @@
   "enable_internet": "true",
   "machine_shape": "NvidiaTeslaT4",
   "dataset_sources": [
-    "REPLACE_KAGGLE_USERNAME/REPLACE_PRIVATE_DATASET_SLUG"
+    "REPLACE_KAGGLE_USERNAME/REPLACE_PRIVATE_DATASET_SLUG",
+    "REPLACE_KAGGLE_USERNAME/REPLACE_AGGREGATE_RESULTS_SLUG"
   ],
   "competition_sources": [],
-  "kernel_sources": [
-    "REPLACE_KAGGLE_USERNAME/mci-heavy-selection-and-validation-with-tabpfn"
-  ],
+  "kernel_sources": [],
   "model_sources": []
 }

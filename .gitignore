@@ -6,6 +6,7 @@ data/
 
 # Never publish local fitted models, predictions, QC extracts or run outputs.
 outputs/
+kaggle/private-upload/
 
 # Notebook/runtime artifacts
 .ipynb_checkpoints/

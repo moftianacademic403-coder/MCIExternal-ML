@@ -17,15 +17,17 @@ METADATA_PATH = KERNEL_DIR / "kernel-metadata.json"
 def prepare(
     kaggle_username: str,
     private_dataset_slug: str,
+    aggregate_results_slug: str,
     repository_url: str,
     repository_branch: str,
 ) -> None:
     metadata = json.loads(TEMPLATE_PATH.read_text(encoding="utf-8"))
     metadata["id"] = f"{kaggle_username}/mci-posthoc-transportability-sensitivity"
-    metadata["dataset_sources"] = [f"{kaggle_username}/{private_dataset_slug}"]
-    metadata["kernel_sources"] = [
-        f"{kaggle_username}/mci-heavy-selection-and-validation-with-tabpfn"
+    metadata["dataset_sources"] = [
+        f"{kaggle_username}/{private_dataset_slug}",
+        f"{kaggle_username}/{aggregate_results_slug}",
     ]
+    metadata["kernel_sources"] = []
     METADATA_PATH.write_text(
         json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8"
     )
@@ -56,6 +58,7 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--kaggle-username", required=True)
     parser.add_argument("--private-dataset-slug", required=True)
+    parser.add_argument("--aggregate-results-slug", required=True)
     parser.add_argument("--repository-url", required=True)
     parser.add_argument("--repository-branch", default="main")
     return parser.parse_args()
@@ -66,6 +69,7 @@ def main() -> None:
     prepare(
         args.kaggle_username,
         args.private_dataset_slug,
+        args.aggregate_results_slug,
         args.repository_url,
         args.repository_branch,
     )

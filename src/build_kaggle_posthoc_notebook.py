@@ -47,7 +47,7 @@ model. MICE is intentionally excluded at the investigator's request.
 ## Setup
 
 - Attach the private `MCIExternal` dataset.
-- Attach the output of `mci-heavy-selection-and-validation-with-tabpfn`.
+- Attach the private aggregate-only `mci-heavy-aggregate-results` dataset.
 - Enable GPU, Internet, and the `TABPFN_TOKEN` Kaggle Secret.
 """
     ),
@@ -153,20 +153,16 @@ def find_unique(filename: str) -> Path:
 
 development_path = find_unique("Developement.csv")
 external_path = find_unique("External.xlsx")
-manifest_matches = [
-    path
-    for path in INPUT_ROOT.rglob("final_evaluation_manifest.json")
-    if "mci_heavy_nested_outputs" in str(path)
-]
-if len(manifest_matches) != 1:
+config_matches = list(INPUT_ROOT.rglob("final_model_configs.csv"))
+if len(config_matches) != 1:
     raise RuntimeError(
-        "Expected one attached heavy-run final manifest; found "
-        f"{manifest_matches}."
+        "Expected one attached aggregate final_model_configs.csv; found "
+        f"{config_matches}."
     )
-prior_output = manifest_matches[0].parents[1]
+prior_output = config_matches[0].parents[1]
 print("Development input found:", development_path.name)
 print("External input found:", external_path.name)
-print("Frozen heavy output found:", prior_output.name)
+print("Frozen aggregate heavy output found:", prior_output.name)
 print("Participant-level contents are not displayed.")
 """
     ),
