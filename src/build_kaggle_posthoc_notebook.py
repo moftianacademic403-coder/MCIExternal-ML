@@ -159,10 +159,21 @@ if len(config_matches) != 1:
         "Expected one attached aggregate final_model_configs.csv; found "
         f"{config_matches}."
     )
-prior_output = config_matches[0].parents[1]
+threshold_matches = list(INPUT_ROOT.rglob("development_thresholds.csv"))
+dca_matches = list(INPUT_ROOT.rglob("external_dca.csv"))
+if len(threshold_matches) != 1 or len(dca_matches) != 1:
+    raise RuntimeError(
+        "Expected one aggregate threshold table and one DCA table; found "
+        f"{threshold_matches=} and {dca_matches=}."
+    )
+prior_output = OUTPUT_DIR / "frozen_heavy_input"
+prior_final = prior_output / "final_evaluation"
+prior_final.mkdir(parents=True, exist_ok=True)
+for source in [config_matches[0], threshold_matches[0], dca_matches[0]]:
+    shutil.copy2(source, prior_final / source.name)
 print("Development input found:", development_path.name)
 print("External input found:", external_path.name)
-print("Frozen aggregate heavy output found:", prior_output.name)
+print("Frozen aggregate heavy output staged locally.")
 print("Participant-level contents are not displayed.")
 """
     ),
