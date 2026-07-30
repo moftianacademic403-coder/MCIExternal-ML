@@ -22,7 +22,9 @@ def prepare(
     repository_branch: str,
 ) -> None:
     metadata = json.loads(TEMPLATE_PATH.read_text(encoding="utf-8"))
-    metadata["id"] = f"{kaggle_username}/mci-posthoc-transportability-sensitivity"
+    metadata["id"] = (
+        f"{kaggle_username}/mci-posthoc-transportability-sensitivity-and-shap"
+    )
     metadata["dataset_sources"] = [
         f"{kaggle_username}/{private_dataset_slug}",
         f"{kaggle_username}/{aggregate_results_slug}",
