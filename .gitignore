@@ -17,6 +17,7 @@ __pycache__/
 notebooks/
 src/build_*_notebook.py
 !src/build_kaggle_heavy_notebook.py
+!src/build_kaggle_posthoc_notebook.py
 
 # Temporary local authentication captures
 .gh-auth-*.txt

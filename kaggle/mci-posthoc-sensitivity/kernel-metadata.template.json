@@ -1,0 +1,19 @@
+{
+  "id": "REPLACE_KAGGLE_USERNAME/mci-posthoc-transportability-sensitivity",
+  "title": "MCI Posthoc Transportability Sensitivity and SHAP",
+  "code_file": "mci_posthoc_sensitivity_kaggle.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": "true",
+  "enable_gpu": "true",
+  "enable_internet": "true",
+  "machine_shape": "NvidiaTeslaT4",
+  "dataset_sources": [
+    "REPLACE_KAGGLE_USERNAME/REPLACE_PRIVATE_DATASET_SLUG"
+  ],
+  "competition_sources": [],
+  "kernel_sources": [
+    "REPLACE_KAGGLE_USERNAME/mci-heavy-selection-and-validation-with-tabpfn"
+  ],
+  "model_sources": []
+}
