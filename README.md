@@ -12,18 +12,19 @@ This public code-only repository contains the reproducible analysis pipeline for
 
 ## Current stage
 
-The full Kaggle GPU run completed successfully with five prespecified model
-families. TabPFN was selected using Development train-80 repeated nested CV only,
-then evaluated once on the locked internal test and External cohort. The original
-locked result remains the primary validation result; External local recalibration
-and threshold updating are explicitly secondary analyses.
+The pipeline is prepared for the final Kaggle rerun after harmonizing education
+to four levels in both cohorts. Five prespecified model families are compared
+using Development train-80 repeated nested CV only. The winning family is then
+frozen and evaluated once on the locked internal test and External cohort. The
+original locked result remains the primary validation result; External local
+recalibration and threshold updating are explicitly secondary analyses.
 
 The follow-up GPU workflow adds the analyses that must not alter the primary
 model: 30-repeat mRMR stability, Development-only elastic-net stability
 selection, all-feature and alternative-feature-set sensitivity analyses,
 complete-case analysis, training-fold winsorization, exclusion of ADL/IADL,
 subgroup interaction tests, full-bootstrap local calibration and Brier
-decomposition, publication figures, and bounded TabPFN SHAP. MICE is excluded at
+decomposition, publication figures, and selected-model SHAP. MICE is excluded at
 the investigator's request. A transportable-core analysis uses External
 predictor distributions but not External outcomes and is therefore labelled
 post-hoc; it requires a new cohort before any confirmatory claim.

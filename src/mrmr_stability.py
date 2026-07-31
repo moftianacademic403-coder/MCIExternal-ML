@@ -143,8 +143,14 @@ def run_mrmr_stability(
     development_path: Path,
     external_path: Path,
     output_dir: Path,
+    external_education_path: Path | None = None,
 ) -> dict[str, pd.DataFrame]:
-    split = create_locked_split(development_path, external_path, output_dir)
+    split = create_locked_split(
+        development_path,
+        external_path,
+        output_dir,
+        external_education_path=external_education_path,
+    )
     development = split["development_eligible_in_memory"]
     train_relative = split["train_relative_indices"]
     registry = split["registry"]
@@ -229,6 +235,9 @@ def run_mrmr_stability(
         "k_selected": None,
         "selection_policy": "k will be tuned inside nested CV; this notebook reports stability only",
         "participant_level_outputs_written": False,
+        "education_harmonization_mode": split["manifest"][
+            "education_harmonization_mode"
+        ],
     }
     (output_dir / "mrmr_manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2),
@@ -240,4 +249,3 @@ def run_mrmr_stability(
         "long_results": long_results,
         "manifest": manifest,
     }
-

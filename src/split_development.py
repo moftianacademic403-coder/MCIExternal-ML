@@ -33,11 +33,13 @@ def create_locked_split(
     development_path: Path,
     external_path: Path,
     output_dir: Path,
+    external_education_path: Path | None = None,
 ) -> dict:
     harmonization = run_harmonization_resolution(
         development_path,
         external_path,
         output_dir,
+        external_education_path=external_education_path,
     )
     registry = harmonization["registry"]
     unresolved = harmonization["unresolved"]
@@ -47,10 +49,9 @@ def create_locked_split(
             + ", ".join(unresolved["development_column_or_expression"].tolist())
         )
 
-    development_raw, external_raw, source_metadata = load_inputs(
-        development_path,
-        external_path,
-    )
+    development_raw = harmonization["development_raw_in_memory"]
+    external_raw = harmonization["external_raw_in_memory"]
+    source_metadata = harmonization["source_metadata"]
     development, external = build_harmonized_frames(
         development_raw,
         external_raw,
@@ -150,8 +151,19 @@ def create_locked_split(
         "external_outcome_used_during_split": False,
         "participant_level_harmonized_files_written": False,
         "participant_level_split_assignments_written": False,
+        "correlation_pruning_applied": False,
+        "mrmr_candidate_predictors_before_ranking": int(len(predictors)),
+        "education_harmonization_mode": (
+            "four_level_code_matched_auxiliary_source"
+            if external_education_path is not None
+            else "three_level_collapsed_external_source"
+        ),
         "reconstruction": "Re-run this function with identical source hashes, registry hash, sklearn version, seed, and row order.",
     }
+    if harmonization["four_level_education_audit"] is not None:
+        split_manifest["four_level_education_audit"] = harmonization[
+            "four_level_education_audit"
+        ]
     (output_dir / "split_manifest.json").write_text(
         json.dumps(split_manifest, ensure_ascii=False, indent=2),
         encoding="utf-8",

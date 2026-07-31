@@ -11,6 +11,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
     average_precision_score,
     brier_score_loss,
+    precision_recall_curve,
     roc_auc_score,
     roc_curve,
 )
@@ -535,6 +536,7 @@ def run_heavy_final_evaluation(
     qc_output_dir: Path,
     selection_output_dir: Path,
     final_output_dir: Path,
+    external_education_path: Path | None = None,
     smoke: bool = False,
     skip_tabpfn: bool = False,
 ) -> dict[str, pd.DataFrame | dict]:
@@ -556,7 +558,12 @@ def run_heavy_final_evaluation(
         if not selected_model_name:
             raise RuntimeError("The full nested-CV run did not select a model family.")
 
-    split = create_locked_split(development_path, external_path, qc_output_dir)
+    split = create_locked_split(
+        development_path,
+        external_path,
+        qc_output_dir,
+        external_education_path=external_education_path,
+    )
     development = split["development_eligible_in_memory"]
     external = split["external_harmonized_in_memory"].reset_index(drop=True)
     registry = split["registry"]
@@ -610,6 +617,8 @@ def run_heavy_final_evaluation(
     config_rows = []
     threshold_rows = []
     evaluation_rows = []
+    roc_curve_rows = []
+    precision_recall_rows = []
     prediction_cache: dict[str, dict[str, np.ndarray]] = {}
     for model_offset, (model_name, spec) in enumerate(spaces.items(), start=1):
         print(f"Full Development tuning: {model_name}", flush=True)
@@ -678,6 +687,43 @@ def run_heavy_final_evaluation(
         )
         internal_probabilities = _apply_calibrator(calibrator, internal_raw)
         external_probabilities = _apply_calibrator(calibrator, external_raw)
+        for partition, labels, probabilities in (
+            ("internal_test_20_locked", internal_labels, internal_probabilities),
+            ("external_validation_locked", external_labels, external_probabilities),
+        ):
+            false_positive_rate, true_positive_rate, roc_thresholds = roc_curve(
+                labels, probabilities
+            )
+            roc_curve_rows.extend(
+                {
+                    "partition": partition,
+                    "model_name": model_name,
+                    "false_positive_rate": float(fpr),
+                    "true_positive_rate": float(tpr),
+                    "threshold": float(threshold),
+                }
+                for fpr, tpr, threshold in zip(
+                    false_positive_rate, true_positive_rate, roc_thresholds
+                )
+            )
+            precision, recall, pr_thresholds = precision_recall_curve(
+                labels, probabilities
+            )
+            padded_thresholds = np.append(pr_thresholds, np.nan)
+            precision_recall_rows.extend(
+                {
+                    "partition": partition,
+                    "model_name": model_name,
+                    "recall": float(current_recall),
+                    "precision": float(current_precision),
+                    "threshold": (
+                        float(threshold) if np.isfinite(threshold) else np.nan
+                    ),
+                }
+                for current_precision, current_recall, threshold in zip(
+                    precision, recall, padded_thresholds
+                )
+            )
         thresholds = {"youden": _youden_threshold(train_labels, oof_calibrated)}
         thresholds.update(
             {
@@ -856,10 +902,14 @@ def run_heavy_final_evaluation(
         "tabpfn_included": "tabpfn" in spaces,
         "cuda_available": _cuda_available(),
         "participant_level_predictions_written": False,
+        "aggregate_curve_coordinates_written": True,
+        "education_harmonization_mode": split["manifest"][
+            "education_harmonization_mode"
+        ],
         "full_external_base_model_refit": False,
         "pending_after_this_stage": [
             "selected-model subgroup analyses with interaction tests",
-            "MICE and complete-case sensitivity analyses",
+            "complete-case sensitivity analysis",
             "selected-model SHAP or TabPFN-native interpretability",
         ],
     }
@@ -872,6 +922,11 @@ def run_heavy_final_evaluation(
     write_csv(three_layer, final_output_dir / "three_layer_summary.csv")
     write_csv(reliability, final_output_dir / "external_reliability_bins.csv")
     write_csv(dca, final_output_dir / "external_dca.csv")
+    write_csv(pd.DataFrame(roc_curve_rows), final_output_dir / "roc_curves.csv")
+    write_csv(
+        pd.DataFrame(precision_recall_rows),
+        final_output_dir / "precision_recall_curves.csv",
+    )
     (final_output_dir / "final_evaluation_manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2),
         encoding="utf-8",
@@ -885,6 +940,8 @@ def run_heavy_final_evaluation(
         "three_layer": three_layer,
         "reliability": reliability,
         "dca": dca,
+        "roc_curves": pd.DataFrame(roc_curve_rows),
+        "precision_recall_curves": pd.DataFrame(precision_recall_rows),
         "manifest": manifest,
     }
 
@@ -895,6 +952,7 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--development", type=Path, required=True)
     parser.add_argument("--external", type=Path, required=True)
+    parser.add_argument("--external-education", type=Path)
     parser.add_argument("--qc-output", type=Path, required=True)
     parser.add_argument("--selection-output", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
@@ -911,6 +969,7 @@ def main() -> None:
         args.qc_output,
         args.selection_output,
         args.output,
+        external_education_path=args.external_education,
         smoke=args.smoke,
         skip_tabpfn=args.skip_tabpfn,
     )

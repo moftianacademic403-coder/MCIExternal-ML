@@ -32,7 +32,7 @@ except ImportError:  # pragma: no cover - recorded in manifest
 
 LIGHT_SEED = 20260729
 INNER_FOLDS = 3
-K_CANDIDATES = (5, 10, 15, 20)
+K_CANDIDATES = (10, 15, 20, 25, 30)
 
 
 def model_ready_frame(
@@ -85,7 +85,38 @@ def _preprocessor(
     return ColumnTransformer(transformers=transformers, remainder="drop", sparse_threshold=0)
 
 
-def _model_specs() -> list[dict]:
+def _model_specs(smoke_test: bool = False) -> list[dict]:
+    if smoke_test:
+        specs = [
+            {
+                "model_name": "logistic_regression",
+                "family": "linear",
+                "scale_numeric": True,
+                "grid": {"C": [1.0]},
+            },
+            {
+                "model_name": "svm_rbf",
+                "family": "kernel",
+                "scale_numeric": True,
+                "grid": {"C": [0.5]},
+            },
+            {
+                "model_name": "random_forest",
+                "family": "bagged_trees",
+                "scale_numeric": False,
+                "grid": {"max_depth": [8], "min_samples_leaf": [5]},
+            },
+        ]
+        if XGBClassifier is not None:
+            specs.append(
+                {
+                    "model_name": "xgboost",
+                    "family": "boosted_trees",
+                    "scale_numeric": False,
+                    "grid": {"max_depth": [3], "learning_rate": [0.05]},
+                }
+            )
+        return specs
     specs = [
         {
             "model_name": "logistic_regression",
@@ -198,8 +229,15 @@ def run_light_tuning(
     external_path: Path,
     qc_output_dir: Path,
     light_output_dir: Path,
+    external_education_path: Path | None = None,
+    smoke_test: bool = False,
 ) -> dict[str, pd.DataFrame | dict]:
-    split = create_locked_split(development_path, external_path, qc_output_dir)
+    split = create_locked_split(
+        development_path,
+        external_path,
+        qc_output_dir,
+        external_education_path=external_education_path,
+    )
     development = split["development_eligible_in_memory"]
     registry = split["registry"]
     predictors = registry.loc[registry["role"] == "predictor", "canonical_name"].tolist()
@@ -227,8 +265,12 @@ def run_light_tuning(
             )
 
     tuning_rows = []
-    for spec in _model_specs():
-        for k, params in itertools.product(K_CANDIDATES, ParameterGrid(spec["grid"])):
+    model_specs = _model_specs(smoke_test=smoke_test)
+    active_k_candidates = (15, 20, 25, 30) if smoke_test else K_CANDIDATES
+    for spec in model_specs:
+        for k, params in itertools.product(
+            active_k_candidates, ParameterGrid(spec["grid"])
+        ):
             fold_aucs = []
             for fit_indices, validation_indices, ranking in fold_cache:
                 selected = ranking[:k]
@@ -273,7 +315,7 @@ def run_light_tuning(
         labels_text,
         {name: variable_types[name] for name in predictors},
     )
-    spec_by_name = {spec["model_name"]: spec for spec in _model_specs()}
+    spec_by_name = {spec["model_name"]: spec for spec in model_specs}
     for model_name, group in tuning.groupby("model_name", sort=True):
         best = group.sort_values(
             ["mean_inner_auc", "k"], ascending=[False, True]
@@ -344,7 +386,15 @@ def run_light_tuning(
         "inner_cv": f"{INNER_FOLDS}-fold StratifiedKFold",
         "inner_cv_seed": LIGHT_SEED,
         "mrmr_rerun_inside_each_fold": True,
-        "k_candidates": list(K_CANDIDATES),
+        "mrmr_candidate_predictor_count": int(len(predictors)),
+        "correlation_pruning_applied": False,
+        "education_harmonization_mode": (
+            "four_level_code_matched_auxiliary_source"
+            if external_education_path is not None
+            else "three_level_collapsed_external_source"
+        ),
+        "k_candidates": list(active_k_candidates),
+        "smoke_test_reduced_hyperparameter_grid": bool(smoke_test),
         "models": selected_models["model_name"].tolist(),
         "tabpfn_status": "deferred_not_installed_local_run",
         "sklearn_version": sklearn.__version__,

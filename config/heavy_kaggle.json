@@ -1,5 +1,5 @@
 {
-  "status": "prepared_not_executed",
+  "status": "prepared_for_final_four_level_education_rerun",
   "created_on": "2026-07-29",
   "purpose": "manuscript-grade Kaggle GPU run after the lightweight pipeline audit",
   "data_policy": {
@@ -43,6 +43,16 @@
     "outliers_primary": "retain_clinically_plausible_values; no_automatic_deletion_or_winsorization",
     "outliers_sensitivity": "training_fold_p01_p99_winsorization_applied_to_validation_test_external",
     "external_handgrip_zero": "convert_to_missing_in_harmonized_copy"
+  },
+  "education_harmonization": {
+    "development": "four_level_education",
+    "external": "four_level_education_from_phas3_DR.Moftian.xlsx_matched_one_to_one_by_Code",
+    "levels": [
+      "illiterate",
+      "primary",
+      "secondary/high school",
+      "academic/university"
+    ]
   },
   "feature_selection": {
     "family": "mRMR",
@@ -166,7 +176,6 @@
     "exclude_adl_and_iadl_if_outcome_overlap_exists",
     "transportable_core_features",
     "training_fold_p01_p99_winsorization",
-    "multiple_imputation_mice",
     "complete_case_when_sample_size_and_selection_bias_allow"
   ],
   "interpretability": {

@@ -41,7 +41,7 @@ Run Development-only repeated nested cross-validation for five prespecified mode
 Before pressing **Save Version → Save & Run All**:
 
 1. Enable a GPU and Internet in notebook settings.
-2. Attach one **private Kaggle dataset** containing exactly `Developement.csv` and `External.xlsx`.
+2. Attach one **private Kaggle dataset** containing `Developement.csv`, `External.xlsx`, and `phas3_DR.Moftian.xlsx`.
 3. Create a Kaggle Secret named `TABPFN_TOKEN` if the TabPFN checkpoint/license flow requires authentication.
 4. Replace `REPOSITORY_URL` below with the public code-only GitHub repository. Never place participant data or access tokens in GitHub.
 """
@@ -152,8 +152,10 @@ def find_unique(filename: str) -> Path:
 
 development_path = find_unique("Developement.csv")
 external_path = find_unique("External.xlsx")
+external_education_path = find_unique("phas3_DR.Moftian.xlsx")
 print("Development input found:", development_path.parent.name, development_path.name)
 print("External input found:", external_path.parent.name, external_path.name)
+print("Four-level education source found:", external_education_path.name)
 print("Participant-level contents are not displayed.")
 """
     ),
@@ -169,6 +171,8 @@ command = [
     str(development_path),
     "--external",
     str(external_path),
+    "--external-education",
+    str(external_education_path),
     "--qc-output",
     str(qc_output),
     "--output",
@@ -188,6 +192,8 @@ final_command = [
     str(development_path),
     "--external",
     str(external_path),
+    "--external-education",
+    str(external_education_path),
     "--qc-output",
     str(qc_output),
     "--selection-output",
@@ -254,6 +260,10 @@ if final_manifest["selected_model_name"] != selection["selected_model_name"]:
     raise RuntimeError("Final evaluation did not preserve the nested-CV selection.")
 if not final_manifest["tabpfn_included"]:
     raise RuntimeError("TabPFN was missing from final family comparison.")
+if manifest["education_harmonization_mode"] != "four_level_code_matched_auxiliary_source":
+    raise RuntimeError("The heavy run did not use the four-level education definition.")
+if final_manifest["education_harmonization_mode"] != "four_level_code_matched_auxiliary_source":
+    raise RuntimeError("The locked evaluation did not use four-level education.")
 
 print(json.dumps(selection, indent=2))
 print(json.dumps(final_manifest, indent=2))
@@ -271,7 +281,7 @@ print("Aggregate output archive:", archive)
 
 - Download and inspect the aggregate ZIP and both leakage manifests.
 - Do not switch to another model because it looks better on External.
-- Subgroup interaction analyses, MICE/complete-case sensitivity analyses, and selected-model SHAP or TabPFN-native interpretability remain separate post-selection work and are explicitly listed in the final manifest.
+- Subgroup interaction analyses, complete-case sensitivity analysis, and selected-model SHAP remain separate post-selection work and are explicitly listed in the final manifest. MICE is intentionally excluded.
 """
     ),
 ]
