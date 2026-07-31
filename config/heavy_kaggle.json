@@ -22,9 +22,10 @@
     "participant_level_outputs_are_not_exported": true
   },
   "blocking_confirmations_before_heavy_run": {
-    "exact_mci_label_definition": "required",
-    "whether_adl_or_iadl_contributed_to_mci_label": "required",
-    "clinical_screening_sensitivity_target": "required_for_threshold_based_primary_analysis"
+    "status": "all_confirmed",
+    "exact_mci_label_definition": "6CIT score >= 8",
+    "adl_iadl_outcome_contribution": "not used as a known hard rule in outcome construction; retained in primary analysis with mandatory joint exclusion sensitivity",
+    "clinical_screening_sensitivity_target": 0.85
   },
   "locked_split": {
     "development_train_fraction": 0.8,
@@ -57,7 +58,14 @@
   "feature_selection": {
     "family": "mRMR",
     "current_preliminary_variant": "normalized_mutual_information_difference_after_training_only_discretization",
-    "candidate_k": [5, 10, 15, 20, 25, 30],
+    "candidate_k": [
+      5,
+      10,
+      15,
+      20,
+      25,
+      30
+    ],
     "stability_repeats": 30,
     "stability_sampling": "stratified_training_only_resamples",
     "consensus_rule": "rank_by_selection_frequency_then_median_rank",
@@ -152,9 +160,14 @@
     "confidence_interval": "paired_stratified_percentile_bootstrap",
     "bootstrap_repetitions": 2000,
     "threshold_source": "development_training_cross_fitted_predictions_only",
-    "threshold_policy": "report_Youden_as_exploratory; report_80_85_90_percent_sensitivity_scenarios; define_primary_screening_threshold_after_clinical_consequences_are_confirmed",
-    "illustrative_prevalence_scenarios": [0.1, 0.2, 0.3],
-    "prevalence_scenario_warning": "PPV_NPV_projection_assumes_sensitivity_and_specificity_transport_despite_possible_spectrum_effects"
+    "threshold_policy": "primary threshold targets 85 percent sensitivity; 80 percent, 90 percent, and Youden thresholds are secondary; all thresholds learned from Development training cross-fitted predictions only",
+    "illustrative_prevalence_scenarios": [
+      0.1,
+      0.2,
+      0.3
+    ],
+    "prevalence_scenario_warning": "PPV_NPV_projection_assumes_sensitivity_and_specificity_transport_despite_possible_spectrum_effects",
+    "primary_screening_sensitivity_target": 0.85
   },
   "brier_decomposition": {
     "method": "Murphy reliability_resolution_uncertainty decomposition",
@@ -163,9 +176,10 @@
   },
   "decision_curve_analysis": {
     "threshold_probability_min": 0.05,
-    "threshold_probability_max": 0.8,
+    "threshold_probability_max": 0.3,
     "threshold_probability_step": 0.01,
-    "bootstrap_repetitions": 2000
+    "bootstrap_repetitions": 2000,
+    "clinical_action": "referral for confirmatory cognitive assessment"
   },
   "subgroups": [
     "sex",
@@ -173,7 +187,7 @@
     "selected_predictor_missingness"
   ],
   "sensitivity_analyses": [
-    "exclude_adl_and_iadl_if_outcome_overlap_exists",
+    "mandatory_joint_exclusion_of_adl_and_iadl",
     "transportable_core_features",
     "training_fold_p01_p99_winsorization",
     "complete_case_when_sample_size_and_selection_bias_allow"
@@ -189,5 +203,10 @@
     "record_gpu_and_cuda_versions": true,
     "record_random_seeds": true,
     "save_aggregate_outputs_only": true
+  },
+  "outcome_definition": {
+    "construct": "6CIT-defined cognitive impairment",
+    "rule": "6CIT score >= 8",
+    "clinical_interpretation": "screen-positive cognitive impairment; not a definitive clinical MCI diagnosis"
   }
 }

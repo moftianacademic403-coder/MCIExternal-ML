@@ -37,7 +37,7 @@ from split_development import create_locked_split
 
 
 TARGET_SENSITIVITIES = (0.80, 0.85, 0.90)
-DCA_THRESHOLDS = np.round(np.arange(0.05, 0.801, 0.01), 2)
+DCA_THRESHOLDS = np.round(np.arange(0.05, 0.301, 0.01), 2)
 LOCAL_FOLDS = 10
 
 
