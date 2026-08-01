@@ -12,11 +12,11 @@ This public code-only repository contains the reproducible analysis pipeline for
 
 ## Current stage
 
-The pipeline is prepared for the final Kaggle rerun after harmonizing education
-to four levels in both cohorts. Five prespecified model families are compared
-using Development train-80 repeated nested CV only. The winning family is then
-frozen and evaluated once on the locked internal test and External cohort. The
-original locked result remains the primary validation result; External local
+The complete four-level pipeline has been executed locally and reached
+`ready_for_manuscript_writing`. Five prespecified model families were compared
+using Development train-80 repeated nested CV only. TabPFN was selected, frozen,
+and evaluated once on the locked internal test and External cohort. The original
+locked result remains the primary validation result; External local
 recalibration and threshold updating are explicitly secondary analyses.
 
 The follow-up GPU workflow adds the analyses that must not alter the primary
@@ -36,6 +36,9 @@ post-hoc; it requires a new cohort before any confirmatory claim.
 - Post-hoc Kaggle notebook: `kaggle/mci-posthoc-sensitivity/mci_posthoc_sensitivity_kaggle.ipynb`
 - Post-hoc runner: `src/heavy_posthoc_analysis.py`
 - Predictor-shift audit: `src/transportability_audit.py`
+- Resumable local runner: `run_local_full_pipeline.ps1`
+- Local environment and rerun guide: `docs/LOCAL_REPRODUCTION.md`
+- Publication figure builder: `src/build_publication_figure_pack.py`
 
 Participant-level predictions are not exported. Aggregate executed outputs remain
 outside the public repository.

@@ -9,6 +9,8 @@ outputs/
 kaggle/private-upload/
 
 # Notebook/runtime artifacts
+.conda-env/
+.venv/
 .ipynb_checkpoints/
 __pycache__/
 *.py[cod]

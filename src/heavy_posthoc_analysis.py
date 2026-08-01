@@ -623,10 +623,21 @@ def _plot_calibration(
     labels: np.ndarray,
     locked_probabilities: np.ndarray,
     local_probabilities: np.ndarray,
+    model_name: str,
     output_path: Path,
 ) -> None:
-    locked_bins = _reliability_bins(labels, locked_probabilities, "locked")
-    local_bins = _reliability_bins(labels, local_probabilities, "local_oof")
+    locked_bins = _reliability_bins(
+        labels,
+        locked_probabilities,
+        model_name,
+        "external_locked_calibrated",
+    )
+    local_bins = _reliability_bins(
+        labels,
+        local_probabilities,
+        model_name,
+        "external_10fold_oof_local_update",
+    )
     figure, axis = plt.subplots(figsize=(7, 6))
     axis.plot([0, 1], [0, 1], linestyle="--", color="black", label="Ideal")
     axis.plot(
@@ -693,7 +704,6 @@ def _tabpfn_shap(
 ) -> dict[str, Any]:
     from tabpfn import TabPFNClassifier
     from tabpfn_extensions.interpretability import shapiq as tabpfn_shapiq
-    from tabpfn_extensions.interpretability import shapiq_to_shap_explanation
     import shap
 
     train_prepared = _tabpfn_frame(train, selected_features, variable_types)
@@ -728,13 +738,27 @@ def _tabpfn_shap(
         index="SV",
         max_order=1,
     )
-    explanation = shapiq_to_shap_explanation(
-        explainer,
-        explain_frame,
+    interaction_values = explainer.explain_X(
+        explain_frame.to_numpy(),
         budget=256,
+        random_state=POSTHOC_SEED,
+        verbose=False,
+    )
+    values = np.asarray(
+        [
+            [current[(feature_index,)] for feature_index in range(len(selected_features))]
+            for current in interaction_values
+        ],
+        dtype=float,
+    )
+    explanation = shap.Explanation(
+        values=values,
+        base_values=np.asarray(
+            [current.baseline_value for current in interaction_values],
+            dtype=float,
+        ),
         feature_names=selected_features,
     )
-    values = np.asarray(explanation.values, dtype=float)
     importance = pd.DataFrame(
         {
             "canonical_name": selected_features,
@@ -1033,6 +1057,7 @@ def run_posthoc_analysis(
         external_labels,
         external_locked,
         external_local,
+        model_name,
         output_dir / "external_calibration_before_after.png",
     )
     _plot_dca(prior_output_dir, output_dir / "external_dca_with_ci.png")

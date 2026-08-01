@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { SpreadsheetFile, Workbook } from "@oai/artifact-tool";
 
-const packageDir = process.argv[2];
+const packageDir = globalThis.__MCI_MANUSCRIPT_PACKAGE_DIR__ ?? process.argv[2];
 if (!packageDir) {
   throw new Error("Usage: node build_manuscript_workbook.mjs <manuscript-package-dir>");
 }
@@ -110,8 +110,13 @@ const catalog = [];
 for (let index = 0; index < tableSpecs.length; index += 1) {
   const [file, sheetName] = tableSpecs[index];
   const csvText = await fs.readFile(path.join(tablesDir, file), "utf8");
-  await workbook.fromCSV(csvText, { sheetName });
-  const sheet = workbook.worksheets.getItem(sheetName);
+  const imported = await Workbook.fromCSV(csvText, { sheetName });
+  const importedSheet = imported.worksheets.getItem(sheetName);
+  const importedValues = importedSheet.getUsedRange(true).values;
+  const sheet = workbook.worksheets.add(sheetName);
+  sheet
+    .getRangeByIndexes(0, 0, importedValues.length, importedValues[0].length)
+    .values = importedValues;
   sheet.showGridLines = false;
   sheet.freezePanes.freezeRows(1);
   const used = sheet.getUsedRange(true);
