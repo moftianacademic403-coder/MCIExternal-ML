@@ -646,6 +646,7 @@ def run_heavy_nested_cv(
     external_path: Path,
     qc_output_dir: Path,
     heavy_output_dir: Path,
+    external_education_path: Path | None = None,
     smoke: bool = False,
     skip_tabpfn: bool = False,
 ) -> dict[str, pd.DataFrame | dict]:
@@ -655,6 +656,7 @@ def run_heavy_nested_cv(
         development_path,
         external_path,
         qc_output_dir,
+        external_education_path=external_education_path,
     )
     development = split["development_eligible_in_memory"]
     registry = split["registry"]
@@ -878,6 +880,9 @@ def run_heavy_nested_cv(
         "cuda_available": _cuda_available(),
         "random_seed": HEAVY_SEED,
         "participant_level_predictions_written": False,
+        "education_harmonization_mode": split["manifest"][
+            "education_harmonization_mode"
+        ],
         "next_stage": (
             "freeze the selected family, tune/finalize on Development train-80, "
             "then evaluate once on locked internal test and External"
@@ -925,6 +930,7 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--development", type=Path, required=True)
     parser.add_argument("--external", type=Path, required=True)
+    parser.add_argument("--external-education", type=Path)
     parser.add_argument("--qc-output", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--smoke", action="store_true")
@@ -939,6 +945,7 @@ def main() -> None:
         args.external,
         args.qc_output,
         args.output,
+        external_education_path=args.external_education,
         smoke=args.smoke,
         skip_tabpfn=args.skip_tabpfn,
     )

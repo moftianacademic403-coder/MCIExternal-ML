@@ -238,8 +238,14 @@ def run_transportability_audit(
     external_path: Path,
     qc_output_dir: Path,
     output_dir: Path,
+    external_education_path: Path | None = None,
 ) -> dict[str, Any]:
-    split = create_locked_split(development_path, external_path, qc_output_dir)
+    split = create_locked_split(
+        development_path,
+        external_path,
+        qc_output_dir,
+        external_education_path=external_education_path,
+    )
     development = split["development_eligible_in_memory"]
     train = development.iloc[split["train_relative_indices"]].reset_index(drop=True)
     external = split["external_harmonized_in_memory"].reset_index(drop=True)
@@ -279,6 +285,7 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--development", type=Path, required=True)
     parser.add_argument("--external", type=Path, required=True)
+    parser.add_argument("--external-education", type=Path)
     parser.add_argument("--qc-output", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     return parser.parse_args()
@@ -291,6 +298,7 @@ def main() -> None:
         args.external,
         args.qc_output,
         args.output,
+        external_education_path=args.external_education,
     )
     print(json.dumps(result["manifest"], indent=2))
 

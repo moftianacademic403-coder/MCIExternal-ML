@@ -139,8 +139,14 @@ def run_light_evaluation(
     external_path: Path,
     qc_output_dir: Path,
     light_output_dir: Path,
+    external_education_path: Path | None = None,
 ) -> dict[str, pd.DataFrame | dict]:
-    split = create_locked_split(development_path, external_path, qc_output_dir)
+    split = create_locked_split(
+        development_path,
+        external_path,
+        qc_output_dir,
+        external_education_path=external_education_path,
+    )
     development = split["development_eligible_in_memory"]
     internal_test = development.iloc[split["test_relative_indices"]].reset_index(drop=True)
     external = split["external_harmonized_in_memory"].reset_index(drop=True)
@@ -177,4 +183,3 @@ def run_light_evaluation(
         json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
     )
     return {"metrics": metrics, "summary": summary, "manifest": manifest}
-

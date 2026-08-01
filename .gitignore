@@ -9,9 +9,13 @@ outputs/
 kaggle/private-upload/
 
 # Notebook/runtime artifacts
+.conda-env/
+.venv/
 .ipynb_checkpoints/
 __pycache__/
 *.py[cod]
+node_modules/
+.artifact_runtime/
 
 # Local executed notebooks and their machine-specific builder scripts.
 # The portable Kaggle notebook under kaggle/ is tracked separately.

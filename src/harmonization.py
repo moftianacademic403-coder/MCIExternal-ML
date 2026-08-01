@@ -6,10 +6,16 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from mci_qc import harmonization_questionnaire, load_inputs, write_csv
+from mci_qc import harmonization_questionnaire, load_inputs, sha256_file, write_csv
 
 
 KEYS = ["development_column_or_expression", "external_column_or_expression"]
+
+FOUR_LEVEL_EDUCATION_COLUMN = "__education_four_level_source"
+FOUR_LEVEL_EDUCATION_TRANSFORMATION = (
+    "development_four_level_education_labels_to_canonical; "
+    "external_code_matched_four_level_education_to_canonical"
+)
 
 NUMERIC_IDENTITY = {
     "age": "age",
@@ -96,6 +102,114 @@ def _clean_numeric(series: pd.Series) -> tuple[pd.Series, int]:
     return numeric, invalid
 
 
+def _load_auxiliary_table(path: Path) -> pd.DataFrame:
+    suffix = path.suffix.casefold()
+    if suffix == ".csv":
+        return pd.read_csv(path, encoding="utf-8-sig")
+    if suffix in {".xlsx", ".xls"}:
+        return pd.read_excel(path)
+    raise ValueError(
+        "The four-level education source must be CSV or Excel; "
+        f"received {path.suffix!r}."
+    )
+
+
+def _canonical_four_level_education(series: pd.Series) -> tuple[pd.Series, int]:
+    text = _clean_text(series)
+    numeric = pd.to_numeric(text, errors="coerce")
+    canonical = pd.Series(pd.NA, index=series.index, dtype="string")
+    numeric_map = {
+        1.0: "illiterate",
+        2.0: "primary",
+        3.0: "secondary/high school",
+        4.0: "academic/university",
+    }
+    canonical.loc[numeric.isin(numeric_map)] = numeric.loc[
+        numeric.isin(numeric_map)
+    ].map(numeric_map)
+    text_map = {
+        "illiterate": "illiterate",
+        "illitrate": "illiterate",
+        "primary": "primary",
+        "primary school": "primary",
+        "secondary": "secondary/high school",
+        "secondary school": "secondary/high school",
+        "secondary/high school": "secondary/high school",
+        "secendry&high": "secondary/high school",
+        "academic": "academic/university",
+        "academic/university": "academic/university",
+    }
+    canonical.loc[text.isin(text_map)] = text.loc[text.isin(text_map)].map(text_map)
+    invalid = int((text.notna() & canonical.isna()).sum())
+    return canonical, invalid
+
+
+def attach_four_level_external_education(
+    external: pd.DataFrame,
+    education_source_path: Path,
+) -> tuple[pd.DataFrame, dict]:
+    source = _load_auxiliary_table(education_source_path)
+    if "Code" not in external.columns or "Code" not in source.columns:
+        raise ValueError(
+            "Both External and its four-level education source must contain Code."
+        )
+    if external["Code"].duplicated().any() or source["Code"].duplicated().any():
+        raise ValueError("Code must be unique in both External education sources.")
+    education_column = next(
+        (
+            name
+            for name in ("Education_cat", "Education Levels", "EDU_cat")
+            if name in source.columns
+        ),
+        None,
+    )
+    if education_column is None:
+        raise ValueError(
+            "No four-level education column found. Expected one of "
+            "Education_cat, Education Levels, or EDU_cat."
+        )
+
+    external_keys = external["Code"].astype("string").str.strip()
+    source_keys = source["Code"].astype("string").str.strip()
+    if external_keys.duplicated().any() or source_keys.duplicated().any():
+        raise ValueError("Normalized Code values must be unique in both sources.")
+    external_key_set = set(external_keys.dropna())
+    source_key_set = set(source_keys.dropna())
+    missing_codes = sorted(external_key_set - source_key_set)
+    extra_codes = sorted(source_key_set - external_key_set)
+    if missing_codes or extra_codes:
+        raise ValueError(
+            "The four-level education source does not match External one-to-one: "
+            f"missing={len(missing_codes)}, extra={len(extra_codes)}."
+        )
+
+    canonical, invalid = _canonical_four_level_education(source[education_column])
+    if invalid:
+        raise ValueError(
+            f"Four-level education contains {invalid} nonmissing invalid values."
+        )
+    lookup = pd.Series(canonical.to_numpy(), index=source_keys)
+    enriched = external.copy()
+    enriched[FOUR_LEVEL_EDUCATION_COLUMN] = external_keys.map(lookup)
+    audit = {
+        "source_file": education_source_path.name,
+        "source_sha256": sha256_file(education_source_path),
+        "source_column": education_column,
+        "external_rows": int(len(external)),
+        "code_match_n": int(external_keys.isin(source_key_set).sum()),
+        "code_missing_from_source_n": int(len(missing_codes)),
+        "code_extra_in_source_n": int(len(extra_codes)),
+        "education_missing_n": int(enriched[FOUR_LEVEL_EDUCATION_COLUMN].isna().sum()),
+        "education_counts": {
+            str(level): int(count)
+            for level, count in enriched[FOUR_LEVEL_EDUCATION_COLUMN]
+            .value_counts(dropna=False)
+            .items()
+        },
+    }
+    return enriched, audit
+
+
 def _yes(response: str) -> bool:
     return str(response).strip().casefold() in {"بله", "yes", "true", "1"}
 
@@ -106,7 +220,7 @@ def _response_confirms_rule(development_expression: str, response: str) -> bool:
         required = {"poorest", "poorer", "low", "middle", "moderate", "richer", "richest", "high"}
         return all(token in normalized for token in required)
     if development_expression == "EDU":
-        required = {
+        collapsed_required = {
             "illitrate",
             "primary",
             "illitrate&primary school",
@@ -114,7 +228,16 @@ def _response_confirms_rule(development_expression: str, response: str) -> bool:
             "secondary school",
             "academic",
         }
-        return all(token in normalized for token in required)
+        four_level_required = {
+            "illiterate",
+            "primary",
+            "secondary/high school",
+            "academic/university",
+            "code",
+        }
+        return all(token in normalized for token in collapsed_required) or all(
+            token in normalized for token in four_level_required
+        )
     if development_expression == "housing_status":
         required = {
             "living with one of children and their family",
@@ -351,6 +474,19 @@ def _apply_rule(
                 "academic": "academic",
             }
         )
+    elif transformation == FOUR_LEVEL_EDUCATION_TRANSFORMATION:
+        development_values, development_invalid = _canonical_four_level_education(
+            development[development_column]
+        )
+        external_values, external_invalid = _canonical_four_level_education(
+            external[external_column]
+        )
+        return (
+            development_values,
+            external_values,
+            development_invalid,
+            external_invalid,
+        )
     elif transformation == "development_99_to_missing_then_trim_casefold; external_trim_casefold":
         development_values = development_values.replace("99", pd.NA)
     return development_values, external_values, 0, 0
@@ -428,6 +564,7 @@ def run_harmonization_resolution(
     development_path: Path,
     external_path: Path,
     output_dir: Path,
+    external_education_path: Path | None = None,
 ) -> dict[str, pd.DataFrame]:
     resolved_questionnaire_path = output_dir / "harmonization_questionnaire_resolved.csv"
     questionnaire_path = (
@@ -439,7 +576,41 @@ def run_harmonization_resolution(
         questionnaire_path = resolved_questionnaire_path
         _write_reviewed_questionnaire(questionnaire_path)
     questionnaire, registry = resolve_questionnaire(questionnaire_path)
-    development, external, _ = load_inputs(development_path, external_path)
+    development, external, source_metadata = load_inputs(
+        development_path, external_path
+    )
+    education_audit = None
+    if external_education_path is not None:
+        external, education_audit = attach_four_level_external_education(
+            external, external_education_path
+        )
+        education_mask = registry["canonical_name"].eq("education")
+        if int(education_mask.sum()) != 1:
+            raise ValueError(
+                "Expected exactly one canonical education rule before applying "
+                "the four-level source."
+            )
+        registry.loc[
+            education_mask, "external_column_or_expression"
+        ] = FOUR_LEVEL_EDUCATION_COLUMN
+        registry.loc[education_mask, "transformation"] = (
+            FOUR_LEVEL_EDUCATION_TRANSFORMATION
+        )
+        registry.loc[education_mask, "source_confirmation"] = (
+            "Current investigator instruction: use the prior model's four-level "
+            "education definition, matched to External by Code."
+        )
+        questionnaire_mask = questionnaire[
+            "development_column_or_expression"
+        ].eq("EDU")
+        questionnaire.loc[questionnaire_mask, "user_response"] = (
+            "Use four levels: illiterate, primary, secondary/high school, "
+            "academic/university; External matched by Code."
+        )
+        questionnaire.loc[questionnaire_mask, "final_harmonization_rule"] = (
+            FOUR_LEVEL_EDUCATION_TRANSFORMATION
+        )
+        write_csv(questionnaire, questionnaire_path)
     validation = validate_registry(development, external, registry)
     unresolved = questionnaire.loc[questionnaire["status"] != "confirmed"].copy()
     write_csv(registry, output_dir / "harmonization_registry.csv")
@@ -457,8 +628,15 @@ def run_harmonization_resolution(
             "active_harmonization_questionnaire": questionnaire_path.name,
             "harmonized_participant_level_files_written": False,
             "harmonization_validation_policy": "structural_validation_only; external_not_used_for_model_selection",
+            "education_harmonization_mode": (
+                "four_level_code_matched_auxiliary_source"
+                if external_education_path is not None
+                else "three_level_collapsed_external_source"
+            ),
         }
     )
+    if education_audit is not None:
+        manifest["four_level_education_audit"] = education_audit
     manifest["outputs"] = sorted(
         set(manifest.get("outputs", []))
         | {
@@ -477,4 +655,8 @@ def run_harmonization_resolution(
         "registry": registry,
         "validation": validation,
         "unresolved": unresolved,
+        "development_raw_in_memory": development,
+        "external_raw_in_memory": external,
+        "source_metadata": source_metadata,
+        "four_level_education_audit": education_audit,
     }

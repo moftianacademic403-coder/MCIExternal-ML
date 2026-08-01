@@ -36,7 +36,8 @@ notebook["cells"] = [
         """
 # MCI post-hoc transportability, sensitivity, subgroup and interpretability
 
-This notebook preserves the Development-selected TabPFN primary model. It uses
+This notebook preserves whichever primary model was selected using Development
+train-80 repeated nested CV. It uses
 the completed heavy-run output as a frozen input and performs only explicitly
 labelled secondary analyses. External outcomes never re-select the primary
 model. MICE is intentionally excluded at the investigator's request.
@@ -48,7 +49,8 @@ model. MICE is intentionally excluded at the investigator's request.
 
 - Attach the private `MCIExternal` dataset.
 - Attach the private aggregate-only `mci-heavy-aggregate-results` dataset.
-- Enable GPU, Internet, and the `TABPFN_TOKEN` Kaggle Secret.
+- Enable Internet. Enable GPU and the `TABPFN_TOKEN` Kaggle Secret when the
+  Development-selected model is TabPFN.
 """
     ),
     code(
@@ -57,6 +59,7 @@ from pathlib import Path
 import json
 import os
 import platform
+import pandas as pd
 import shutil
 import subprocess
 import sys
@@ -88,26 +91,21 @@ subprocess.run(
 )
 """
     ),
-    markdown("### 2. Load TabPFN authentication"),
+    markdown("### 2. Load TabPFN authentication if it is available"),
     code(
         r"""
 os.environ.setdefault("TABPFN_DISABLE_TELEMETRY", "1")
 os.environ.setdefault("TABPFN_NO_BROWSER", "1")
 from kaggle_secrets import UserSecretsClient
 
-token = UserSecretsClient().get_secret("TABPFN_TOKEN")
-if not token:
-    raise RuntimeError("TABPFN_TOKEN is empty or not enabled for this notebook.")
-os.environ["TABPFN_TOKEN"] = token
-print("TABPFN_TOKEN loaded from Kaggle Secrets.")
-
-# Fail early if the pinned extensions package changes the interpretability API.
-from tabpfn_extensions.interpretability import shapiq as _tabpfn_shapiq
-from tabpfn_extensions.interpretability import shapiq_to_shap_explanation
-
-assert hasattr(_tabpfn_shapiq, "get_tabpfn_imputation_explainer")
-assert callable(shapiq_to_shap_explanation)
-print("TabPFN SHAP API check passed.")
+token = None
+try:
+    token = UserSecretsClient().get_secret("TABPFN_TOKEN")
+except Exception as error:
+    print("TABPFN_TOKEN is not enabled; this is acceptable only for a classical selected model.")
+if token:
+    os.environ["TABPFN_TOKEN"] = token
+    print("TABPFN_TOKEN loaded from Kaggle Secrets.")
 """
     ),
     markdown("### 3. Verify GPU and clone the frozen code repository"),
@@ -115,9 +113,9 @@ print("TabPFN SHAP API check passed.")
         r"""
 import torch
 
-if not torch.cuda.is_available():
-    raise RuntimeError("No CUDA GPU detected.")
-print("GPU:", torch.cuda.get_device_name(0))
+print("CUDA available:", torch.cuda.is_available())
+if torch.cuda.is_available():
+    print("GPU:", torch.cuda.get_device_name(0))
 if "REPLACE_" in REPOSITORY_URL:
     raise RuntimeError("Configure the code-only GitHub repository URL.")
 if PROJECT_DIR.exists():
@@ -153,6 +151,7 @@ def find_unique(filename: str) -> Path:
 
 development_path = find_unique("Developement.csv")
 external_path = find_unique("External.xlsx")
+external_education_path = find_unique("phas3_DR.Moftian.xlsx")
 config_matches = list(INPUT_ROOT.rglob("final_model_configs.csv"))
 if len(config_matches) != 1:
     raise RuntimeError(
@@ -161,18 +160,37 @@ if len(config_matches) != 1:
     )
 threshold_matches = list(INPUT_ROOT.rglob("development_thresholds.csv"))
 dca_matches = list(INPUT_ROOT.rglob("external_dca.csv"))
-if len(threshold_matches) != 1 or len(dca_matches) != 1:
+manifest_matches = list(INPUT_ROOT.rglob("final_evaluation_manifest.json"))
+if len(threshold_matches) != 1 or len(dca_matches) != 1 or len(manifest_matches) != 1:
     raise RuntimeError(
-        "Expected one aggregate threshold table and one DCA table; found "
-        f"{threshold_matches=} and {dca_matches=}."
+        "Expected one aggregate threshold table, DCA table, and final manifest; found "
+        f"{threshold_matches=}, {dca_matches=}, and {manifest_matches=}."
     )
 prior_output = OUTPUT_DIR / "frozen_heavy_input"
 prior_final = prior_output / "final_evaluation"
 prior_final.mkdir(parents=True, exist_ok=True)
-for source in [config_matches[0], threshold_matches[0], dca_matches[0]]:
+for source in [config_matches[0], threshold_matches[0], dca_matches[0], manifest_matches[0]]:
     shutil.copy2(source, prior_final / source.name)
+configs = pd.read_csv(config_matches[0])
+selected_mask = configs["selected_by_nested_cv_for_primary_analysis"].astype(str).str.lower().eq("true")
+selected_rows = configs.loc[selected_mask]
+if len(selected_rows) != 1:
+    raise RuntimeError("Expected exactly one Development-selected primary model.")
+primary_model = str(selected_rows.iloc[0]["model_name"])
+if primary_model == "tabpfn":
+    if not token:
+        raise RuntimeError("The selected model is TabPFN, but TABPFN_TOKEN is not enabled.")
+    if not torch.cuda.is_available():
+        raise RuntimeError("The selected model is TabPFN, but no CUDA GPU is available.")
+    from tabpfn_extensions.interpretability import shapiq as _tabpfn_shapiq
+    from tabpfn_extensions.interpretability import shapiq_to_shap_explanation
+    assert hasattr(_tabpfn_shapiq, "get_tabpfn_imputation_explainer")
+    assert callable(shapiq_to_shap_explanation)
+    print("TabPFN SHAP API check passed.")
+print("Frozen Development-selected model:", primary_model)
 print("Development input found:", development_path.name)
 print("External input found:", external_path.name)
+print("Four-level education source found:", external_education_path.name)
 print("Frozen aggregate heavy output staged locally.")
 print("Participant-level contents are not displayed.")
 """
@@ -188,6 +206,8 @@ command = [
     str(development_path),
     "--external",
     str(external_path),
+    "--external-education",
+    str(external_education_path),
     "--qc-output",
     str(OUTPUT_DIR / "qc"),
     "--prior-output",
@@ -212,6 +232,8 @@ if manifest["primary_model_changed"]:
     raise RuntimeError("Leakage guard failed: the primary model changed.")
 if manifest["mice_performed"]:
     raise RuntimeError("MICE was unexpectedly executed.")
+if manifest["education_harmonization_mode"] != "four_level_code_matched_auxiliary_source":
+    raise RuntimeError("Post-hoc analysis did not use four-level education.")
 required = [
     "posthoc_sensitivity_metrics.csv",
     "subgroup_performance.csv",
@@ -219,15 +241,15 @@ required = [
     "local_calibration_and_brier_decomposition.csv",
     "external_calibration_before_after.png",
     "external_dca_with_ci.png",
-    "tabpfn_shap_global_importance.csv",
-    "tabpfn_shap_beeswarm.png",
+    "selected_model_shap_global_importance.csv",
+    "selected_model_shap_summary.png",
 ]
 missing = [name for name in required if not (OUTPUT_DIR / "analysis" / name).exists()]
 if missing:
     raise RuntimeError(f"Missing required outputs: {missing}")
 environment = {
     "python": platform.python_version(),
-    "gpu": torch.cuda.get_device_name(0),
+    "gpu": torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
     "repository_commit": subprocess.check_output(
         ["git", "-C", str(PROJECT_DIR), "rev-parse", "HEAD"], text=True
     ).strip(),

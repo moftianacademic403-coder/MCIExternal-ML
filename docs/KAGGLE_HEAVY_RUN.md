@@ -27,7 +27,7 @@ The notebook `kaggle/mci-heavy-nested-cv/mci_heavy_nested_cv_kaggle.ipynb` runs 
    - a separately labelled 10-fold OOF External local-recalibration/threshold analysis;
    - no full base-model refit on External.
 
-Subgroup interaction testing, MICE/complete-case sensitivity analysis, and final selected-model SHAP/TabPFN interpretability are intentionally listed as pending in the final manifest. They should be run after the selected family is known rather than multiplying expensive analyses across every candidate family.
+Subgroup interaction testing, complete-case sensitivity analysis, and final selected-model SHAP are intentionally listed as pending in the final manifest. MICE is excluded at the investigator's request. These analyses should be run after the selected family is known rather than multiplying expensive analyses across every candidate family.
 
 ## TabPFN source and version
 
@@ -62,6 +62,7 @@ Before treating the full run as the manuscript run, record:
 2. Create a private Kaggle dataset containing exactly:
    - `Developement.csv`
    - `External.xlsx`
+   - `phas3_DR.Moftian.xlsx`
 3. In Kaggle, accept the TabPFN model terms and add `TABPFN_TOKEN` as a Kaggle Secret if requested.
 4. Enable Internet and an NVIDIA GPU for the Kaggle notebook.
 
@@ -117,4 +118,3 @@ kaggle kernels output YOUR_KAGGLE_USERNAME/mci-heavy-selection-and-validation `
 - `src/heavy_final_evaluation.py` compiled and completed the smoke finalization, locked internal/External evaluation, local update, reliability and DCA stages.
 - The Kaggle notebook has valid `nbformat` structure and contains explicit GPU, secret, input-count and leakage guards.
 - TabPFN itself and the full repeated nested-CV run have not been executed locally because this machine has no configured Kaggle GPU session or TabPFN installation.
-

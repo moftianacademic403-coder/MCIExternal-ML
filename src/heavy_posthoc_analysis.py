@@ -34,8 +34,10 @@ from heavy_final_evaluation import (
 )
 from heavy_nested_cv import (
     HEAVY_SEED,
+    _classical_pipeline,
     _fit_predict,
     _fit_predict_many,
+    _model_spaces,
     _tabpfn_frame,
 )
 from light_modeling import model_ready_frame
@@ -60,17 +62,35 @@ def _saved_calibration(
 
 def _load_locked_configuration(
     prior_output_dir: Path,
-) -> tuple[dict[str, Any], list[str], float, float, float]:
+) -> tuple[str, dict[str, Any], list[str], float, float, float]:
+    manifest_path = (
+        prior_output_dir / "final_evaluation" / "final_evaluation_manifest.json"
+    )
+    prior_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if prior_manifest.get("status") != "manuscript_grade_locked_evaluation_completed":
+        raise RuntimeError(
+            "Post-hoc analysis requires a manuscript-grade heavy run; received "
+            f"{prior_manifest.get('status')!r}."
+        )
+    if (
+        prior_manifest.get("education_harmonization_mode")
+        != "four_level_code_matched_auxiliary_source"
+    ):
+        raise RuntimeError("Prior heavy run did not use four-level education.")
+    if prior_manifest.get("participant_level_predictions_written") is not False:
+        raise RuntimeError("Prior heavy-run privacy guard failed.")
     configs = pd.read_csv(
         prior_output_dir / "final_evaluation" / "final_model_configs.csv",
         encoding="utf-8-sig",
     )
-    selected = configs.loc[
-        configs["selected_by_nested_cv_for_primary_analysis"].astype(bool)
-    ]
-    if len(selected) != 1 or selected.iloc[0]["model_name"] != "tabpfn":
-        raise RuntimeError("Expected exactly one locked TabPFN primary configuration.")
+    selected_flag = configs["selected_by_nested_cv_for_primary_analysis"]
+    if selected_flag.dtype != bool:
+        selected_flag = selected_flag.astype("string").str.casefold().eq("true")
+    selected = configs.loc[selected_flag]
+    if len(selected) != 1:
+        raise RuntimeError("Expected exactly one locked primary configuration.")
     row = selected.iloc[0]
+    model_name = str(row["model_name"])
     params = json.loads(row["params_json"])
     features = str(row["selected_features"]).split("|")
     thresholds = pd.read_csv(
@@ -78,12 +98,13 @@ def _load_locked_configuration(
         encoding="utf-8-sig",
     )
     threshold_row = thresholds.loc[
-        thresholds["model_name"].eq("tabpfn")
+        thresholds["model_name"].eq(model_name)
         & thresholds["operating_point"].eq("target_sensitivity_85")
     ]
     if len(threshold_row) != 1:
         raise RuntimeError("Locked Development target-sensitivity threshold is missing.")
     return (
+        model_name,
         params,
         features,
         float(row["calibration_intercept_a"]),
@@ -245,6 +266,7 @@ def _winsorize_from_fit(
 
 def _evaluate_feature_scenario(
     scenario: str,
+    model_name: str,
     train: pd.DataFrame,
     internal: pd.DataFrame,
     external: pd.DataFrame,
@@ -254,6 +276,7 @@ def _evaluate_feature_scenario(
     selected_features: list[str],
     variable_types: dict[str, str],
     params: dict[str, Any],
+    scale_numeric: bool,
     bootstrap_repeats: int,
     winsorize: bool = False,
     complete_case: bool = False,
@@ -293,14 +316,14 @@ def _evaluate_feature_scenario(
                 variable_types,
             )
         oof_raw[validation_indices] = _fit_predict(
-            "tabpfn",
+            model_name,
             params,
             fit_frame,
             train_y[fit_indices],
             validation_frame,
             selected_features,
             variable_types,
-            False,
+            scale_numeric,
             POSTHOC_SEED + fold * 100 + len(scenario),
         )
     calibrator = _fit_calibrator(train_y, oof_raw)
@@ -319,14 +342,14 @@ def _evaluate_feature_scenario(
             variable_types,
         )
     internal_raw, external_raw = _fit_predict_many(
-        "tabpfn",
+        model_name,
         params,
         fit_frame,
         train_y,
         validation_frames,
         selected_features,
         variable_types,
-        False,
+        scale_numeric,
         POSTHOC_SEED + 9000 + len(scenario),
     )
     internal_probability = calibrator.predict_proba(
@@ -353,6 +376,7 @@ def _evaluate_feature_scenario(
         )
     metadata = {
         "scenario": scenario,
+        "model_name": model_name,
         "features": "|".join(selected_features),
         "feature_count": len(selected_features),
         "development_train_rows": int(len(train_current)),
@@ -599,10 +623,21 @@ def _plot_calibration(
     labels: np.ndarray,
     locked_probabilities: np.ndarray,
     local_probabilities: np.ndarray,
+    model_name: str,
     output_path: Path,
 ) -> None:
-    locked_bins = _reliability_bins(labels, locked_probabilities, "locked")
-    local_bins = _reliability_bins(labels, local_probabilities, "local_oof")
+    locked_bins = _reliability_bins(
+        labels,
+        locked_probabilities,
+        model_name,
+        "external_locked_calibrated",
+    )
+    local_bins = _reliability_bins(
+        labels,
+        local_probabilities,
+        model_name,
+        "external_10fold_oof_local_update",
+    )
     figure, axis = plt.subplots(figsize=(7, 6))
     axis.plot([0, 1], [0, 1], linestyle="--", color="black", label="Ideal")
     axis.plot(
@@ -620,7 +655,7 @@ def _plot_calibration(
     axis.set(xlabel="Predicted probability", ylabel="Observed MCI rate", xlim=(0, 1), ylim=(0, 1))
     axis.legend()
     figure.tight_layout()
-    figure.savefig(output_path, dpi=220)
+    figure.savefig(output_path, dpi=300)
     plt.close(figure)
 
 
@@ -653,7 +688,7 @@ def _plot_dca(prior_output_dir: Path, output_path: Path) -> None:
     axis.set(xlabel="Threshold probability", ylabel="Net benefit", xlim=(0.05, 0.80))
     axis.legend(fontsize=8)
     figure.tight_layout()
-    figure.savefig(output_path, dpi=220)
+    figure.savefig(output_path, dpi=300)
     plt.close(figure)
 
 
@@ -669,7 +704,6 @@ def _tabpfn_shap(
 ) -> dict[str, Any]:
     from tabpfn import TabPFNClassifier
     from tabpfn_extensions.interpretability import shapiq as tabpfn_shapiq
-    from tabpfn_extensions.interpretability import shapiq_to_shap_explanation
     import shap
 
     train_prepared = _tabpfn_frame(train, selected_features, variable_types)
@@ -704,13 +738,27 @@ def _tabpfn_shap(
         index="SV",
         max_order=1,
     )
-    explanation = shapiq_to_shap_explanation(
-        explainer,
-        explain_frame,
+    interaction_values = explainer.explain_X(
+        explain_frame.to_numpy(),
         budget=256,
+        random_state=POSTHOC_SEED,
+        verbose=False,
+    )
+    values = np.asarray(
+        [
+            [current[(feature_index,)] for feature_index in range(len(selected_features))]
+            for current in interaction_values
+        ],
+        dtype=float,
+    )
+    explanation = shap.Explanation(
+        values=values,
+        base_values=np.asarray(
+            [current.baseline_value for current in interaction_values],
+            dtype=float,
+        ),
         feature_names=selected_features,
     )
-    values = np.asarray(explanation.values, dtype=float)
     importance = pd.DataFrame(
         {
             "canonical_name": selected_features,
@@ -720,19 +768,137 @@ def _tabpfn_shap(
             "budget_per_row": 256,
         }
     ).sort_values("mean_abs_shap", ascending=False)
-    write_csv(importance, output_dir / "tabpfn_shap_global_importance.csv")
+    write_csv(importance, output_dir / "selected_model_shap_global_importance.csv")
     shap.plots.beeswarm(explanation, max_display=20, show=False)
     plt.tight_layout()
-    plt.savefig(output_dir / "tabpfn_shap_beeswarm.png", dpi=220, bbox_inches="tight")
+    plt.savefig(output_dir / "selected_model_shap_summary.png", dpi=300, bbox_inches="tight")
     plt.close()
     del classifier, explainer, explanation
     gc.collect()
     return {
         "status": "completed",
+        "model_name": "tabpfn",
         "method": "TabPFN shapiq imputation explainer converted to shap.Explanation",
         "scope": "50 stratified rows from the locked internal test only",
         "budget_per_row": 256,
         "warning": "Experimental TabPFN extension; SHAP values describe associations, not causality.",
+    }
+
+
+def _normalize_shap_values(values: Any) -> np.ndarray:
+    if isinstance(values, list):
+        values = values[-1]
+    array = np.asarray(values, dtype=float)
+    if array.ndim == 3:
+        array = array[:, :, -1]
+    if array.ndim != 2:
+        raise RuntimeError(f"Unexpected SHAP value shape: {array.shape}")
+    return array
+
+
+def _classical_shap(
+    model_name: str,
+    train: pd.DataFrame,
+    train_labels: np.ndarray,
+    internal: pd.DataFrame,
+    internal_labels: np.ndarray,
+    selected_features: list[str],
+    variable_types: dict[str, str],
+    params: dict[str, Any],
+    scale_numeric: bool,
+    output_dir: Path,
+) -> dict[str, Any]:
+    import shap
+
+    pipeline = _classical_pipeline(
+        model_name,
+        params,
+        selected_features,
+        variable_types,
+        scale_numeric,
+        POSTHOC_SEED,
+    )
+    pipeline.fit(train[selected_features], train_labels)
+    preprocessor = pipeline.named_steps["preprocessor"]
+    estimator = pipeline.named_steps["model"]
+    encoded_train = np.asarray(preprocessor.transform(train[selected_features]), dtype=float)
+    encoded_internal = np.asarray(preprocessor.transform(internal[selected_features]), dtype=float)
+    encoded_names = [str(name) for name in preprocessor.get_feature_names_out()]
+    rng = np.random.default_rng(POSTHOC_SEED)
+    explain_indices = np.sort(
+        np.concatenate(
+            [
+                rng.choice(
+                    np.flatnonzero(internal_labels == label),
+                    size=min(25, int(np.sum(internal_labels == label))),
+                    replace=False,
+                )
+                for label in (0, 1)
+            ]
+        )
+    )
+    background_indices = rng.choice(
+        np.arange(len(encoded_train)),
+        size=min(100, len(encoded_train)),
+        replace=False,
+    )
+    background = encoded_train[background_indices]
+    explain_matrix = encoded_internal[explain_indices]
+    if model_name in {"random_forest", "xgboost"}:
+        explainer = shap.TreeExplainer(estimator, data=background)
+        values = _normalize_shap_values(explainer.shap_values(explain_matrix))
+        method = "TreeSHAP on the fitted selected-model estimator"
+    elif model_name == "elastic_net_logistic":
+        explainer = shap.LinearExplainer(estimator, background)
+        values = _normalize_shap_values(explainer.shap_values(explain_matrix))
+        method = "Linear SHAP on the fitted elastic-net logistic estimator"
+    else:
+        background_summary = shap.kmeans(background, min(25, len(background)))
+        explainer = shap.KernelExplainer(
+            lambda matrix: estimator.predict_proba(matrix)[:, 1],
+            background_summary,
+        )
+        values = _normalize_shap_values(
+            explainer.shap_values(explain_matrix, nsamples=256)
+        )
+        method = "Kernel SHAP on the fitted RBF-SVM estimator"
+
+    owner_indices: dict[str, list[int]] = {feature: [] for feature in selected_features}
+    for index, encoded_name in enumerate(encoded_names):
+        owner = _encoded_feature_owner(encoded_name, selected_features)
+        if owner is not None:
+            owner_indices[owner].append(index)
+    aggregated = np.column_stack(
+        [
+            values[:, indices].sum(axis=1) if indices else np.zeros(len(values))
+            for feature, indices in owner_indices.items()
+        ]
+    )
+    importance = pd.DataFrame(
+        {
+            "canonical_name": selected_features,
+            "mean_abs_shap": np.mean(np.abs(aggregated), axis=0),
+            "mean_shap": np.mean(aggregated, axis=0),
+            "explained_internal_rows": len(explain_indices),
+            "budget_per_row": 256 if model_name == "svm_rbf" else np.nan,
+        }
+    ).sort_values("mean_abs_shap", ascending=False)
+    write_csv(importance, output_dir / "selected_model_shap_global_importance.csv")
+    top = importance.head(20).sort_values("mean_abs_shap")
+    figure, axis = plt.subplots(figsize=(8.5, 6.5))
+    axis.barh(top["canonical_name"], top["mean_abs_shap"], color="#2F5D7C")
+    axis.set_xlabel("Mean absolute SHAP value")
+    axis.set_title(f"Selected-model SHAP importance: {model_name}")
+    axis.spines[["top", "right"]].set_visible(False)
+    figure.tight_layout()
+    figure.savefig(output_dir / "selected_model_shap_summary.png", dpi=300, bbox_inches="tight")
+    plt.close(figure)
+    return {
+        "status": "completed",
+        "model_name": model_name,
+        "method": method,
+        "scope": f"{len(explain_indices)} stratified rows from the locked internal test only",
+        "warning": "SHAP values describe model associations, not causality.",
     }
 
 
@@ -742,11 +908,17 @@ def run_posthoc_analysis(
     qc_output_dir: Path,
     prior_output_dir: Path,
     output_dir: Path,
+    external_education_path: Path | None = None,
     bootstrap_repeats: int = 2000,
     skip_shap: bool = False,
 ) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
-    split = create_locked_split(development_path, external_path, qc_output_dir)
+    split = create_locked_split(
+        development_path,
+        external_path,
+        qc_output_dir,
+        external_education_path=external_education_path,
+    )
     development = split["development_eligible_in_memory"]
     train_indices = split["train_relative_indices"]
     test_indices = split["test_relative_indices"]
@@ -768,18 +940,22 @@ def run_posthoc_analysis(
     internal_labels = internal.pop("mci").map({"no": 0, "yes": 1}).to_numpy(dtype=int)
     external_labels = external.pop("mci").map({"no": 0, "yes": 1}).to_numpy(dtype=int)
 
-    params, frozen_features, calibration_a, calibration_b, locked_threshold = (
+    model_name, params, frozen_features, calibration_a, calibration_b, locked_threshold = (
         _load_locked_configuration(prior_output_dir)
     )
+    spaces = _model_spaces()
+    if model_name not in spaces:
+        raise RuntimeError(f"Unsupported selected model family: {model_name}")
+    scale_numeric = bool(spaces[model_name]["scale_numeric"])
     internal_raw, external_raw = _fit_predict_many(
-        "tabpfn",
+        model_name,
         params,
         train,
         train_labels,
         [internal, external],
         frozen_features,
         variable_types,
-        False,
+        scale_numeric,
         POSTHOC_SEED,
     )
     internal_locked = _saved_calibration(internal_raw, calibration_a, calibration_b)
@@ -787,7 +963,10 @@ def run_posthoc_analysis(
 
     stability_dir = output_dir / "feature_stability"
     stability = run_mrmr_stability(
-        development_path, external_path, stability_dir
+        development_path,
+        external_path,
+        stability_dir,
+        external_education_path=external_education_path,
     )
     elastic_stability = _elastic_net_stability(
         train, train_labels, predictors, variable_types
@@ -805,6 +984,7 @@ def run_posthoc_analysis(
         external_path,
         qc_output_dir,
         transport_dir,
+        external_education_path=external_education_path,
     )
     drift = transport["drift"]
     eligible_transport = set(
@@ -845,6 +1025,7 @@ def run_posthoc_analysis(
         print(f"Post-hoc sensitivity: {scenario}", flush=True)
         metrics, metadata = _evaluate_feature_scenario(
             scenario,
+            model_name,
             train,
             internal,
             external,
@@ -854,6 +1035,7 @@ def run_posthoc_analysis(
             features,
             variable_types,
             params,
+            scale_numeric,
             bootstrap_repeats,
             winsorize=winsorize,
             complete_case=complete_case,
@@ -875,6 +1057,7 @@ def run_posthoc_analysis(
         external_labels,
         external_locked,
         external_local,
+        model_name,
         output_dir / "external_calibration_before_after.png",
     )
     _plot_dca(prior_output_dir, output_dir / "external_dca_with_ci.png")
@@ -902,7 +1085,7 @@ def run_posthoc_analysis(
     shap_manifest: dict[str, Any]
     if skip_shap:
         shap_manifest = {"status": "skipped_by_flag"}
-    else:
+    elif model_name == "tabpfn":
         shap_manifest = _tabpfn_shap(
             train,
             train_labels,
@@ -913,9 +1096,22 @@ def run_posthoc_analysis(
             params,
             output_dir,
         )
+    else:
+        shap_manifest = _classical_shap(
+            model_name,
+            train,
+            train_labels,
+            internal,
+            internal_labels,
+            frozen_features,
+            variable_types,
+            params,
+            scale_numeric,
+            output_dir,
+        )
     manifest = {
         "status": "posthoc_sensitivity_transportability_and_interpretability_completed",
-        "primary_model": "tabpfn",
+        "primary_model": model_name,
         "primary_model_changed": False,
         "primary_model_source": "Development train-80 repeated nested CV",
         "external_outcome_used_for_primary_selection": False,
@@ -932,6 +1128,9 @@ def run_posthoc_analysis(
         "bootstrap_repeats": bootstrap_repeats,
         "shap": shap_manifest,
         "participant_level_outputs_written": False,
+        "education_harmonization_mode": split["manifest"][
+            "education_harmonization_mode"
+        ],
     }
     (output_dir / "posthoc_manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2),
@@ -946,6 +1145,7 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--development", type=Path, required=True)
     parser.add_argument("--external", type=Path, required=True)
+    parser.add_argument("--external-education", type=Path)
     parser.add_argument("--qc-output", type=Path, required=True)
     parser.add_argument("--prior-output", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
@@ -962,6 +1162,7 @@ def main() -> None:
         args.qc_output,
         args.prior_output,
         args.output,
+        external_education_path=args.external_education,
         bootstrap_repeats=args.bootstrap_repeats,
         skip_shap=args.skip_shap,
     )
